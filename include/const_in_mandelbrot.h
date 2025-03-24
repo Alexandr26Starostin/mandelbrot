@@ -3,7 +3,8 @@
 
 enum errors_in_mandelbrot
 {
-	NOT_ERROR = 0
+	NOT_ERROR               = 0,
+	CAN_NOT_LOAD_FROM_IMAGE = 1
 };
 
 #endif
