@@ -1,13 +1,13 @@
 #include <stdio.h>
 
-#include "const_in_mandelbrod.h"
-#include "draw_mandelbrod.h"
+#include "const_in_mandelbrot.h"
+#include "draw_mandelbrot.h"
 
 int main ()
 {
-	printf ("Hello!\nI am model of Mandelbrod\n");
+	printf ("Hello!\nI am model of Mandelbrot\n");
 
-	errors_in_mandelbrod status =  draw_mandelbrod ();
+	errors_in_mandelbrot status =  draw_mandelbrot ();
 	
 	return status;
 }

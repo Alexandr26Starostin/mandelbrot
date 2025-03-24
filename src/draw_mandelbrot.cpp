@@ -3,17 +3,17 @@
 #include <SFML/Graphics.hpp>
 //#include <SFML/Audio.hpp>
 
-#include "const_in_mandelbrod.h"
-#include "draw_mandelbrod.h"
+#include "const_in_mandelbrot.h"
+#include "draw_mandelbrot.h"
 
-errors_in_mandelbrod draw_mandelbrod ()
+errors_in_mandelbrot draw_mandelbrot ()
 {
-    errors_in_mandelbrod status = NOT_ERROR;
+    errors_in_mandelbrot status = NOT_ERROR;
 
     uint x_size_window = 800;
     uint y_size_window = 600; 
 
-	sf::RenderWindow window(sf::VideoMode({x_size_window, y_size_window}), "model_of_mandekbrod");
+	sf::RenderWindow window(sf::VideoMode({x_size_window, y_size_window}), "model_of_mandekbrot");
 
     while (window.isOpen())
     {
