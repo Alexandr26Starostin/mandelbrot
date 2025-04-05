@@ -7,7 +7,8 @@ int main ()
 {
 	printf ("Hello!\nI am model of Mandelbrot\n");
 
-	errors_in_mandelbrot status =  draw_mandelbrot ();
+	errors_in_mandelbrot status =  old_draw_mandelbrot ();
+	status = draw_mandelbrot ();
 	
 	return status;
 }
