@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <SFML/Graphics.hpp>
 #include <immintrin.h>
+#include <time.h>
 
 #include "const_in_mandelbrot.h"
 #include "draw_mandelbrot.h"
@@ -22,15 +23,39 @@ const float        BASE_SHIFTING_ON_VERTICAL     = 0.25;
 const sf::Vector2f BASE_COORDINATE_OF_POINT      = {0, 0};
 const float        MAX_DISTANCE_2                = 100;
 const size_t       MAX_NUMBER_OF_ITERATION_POINT = 256;
-const size_t       LEN_POINTS_IN_MMX             = 4;   
+const size_t       LEN_POINTS_IN_MMX             = 8;   
 const size_t       MASK_FOR_CMP                  = 1;       
 const float        E_LOCALITY                    = (float) 0.0001;
 const float        MASK_FOR_RESULT               = (float) 0x00000001;
 
-static __m128               mandelbrot           (__m128 x_coordinates, __m128 y_coordinates);
-static sf::Color            old_mandelbrot       (sf::Vector2f coordinates_of_point);
-static bool                 cmp_mmx_and_null     (__m128 vector);
-       errors_in_mandelbrot print_list_of_points (__m128* x_coordinates, __m128* y_coordinates, mode_of_working_t mode);
+enum count_of_vector_t
+{
+    ONE_VECTOR  = 1,
+    TWO_VECTORS = 2
+};
+
+enum mode_of_working_t
+{
+	NOT_MODE         = 0,
+	PRINT_FAST       = 1,
+	PRINT_WITH_PAUSE = 2
+};
+
+struct list_arg_for_print_vector_t
+{
+    void*             x_coordinates;
+    void*             y_coordinates;
+    count_of_vector_t count_of_vectors;  
+    size_t            count_of_elements;
+    char              type; 
+    mode_of_working_t mode;
+};
+
+static __m256    mandelbrot       (__m256 x_coordinates, __m256 y_coordinates);
+static sf::Color old_mandelbrot   (sf::Vector2f coordinates_of_point);
+static bool      cmp_mmx_and_null (__m256 vector);
+
+errors_in_mandelbrot print_list_of_points (list_arg_for_print_vector_t list_arg);
 
 #define deg_2_(value) value * value 
 
@@ -48,6 +73,29 @@ static bool                 cmp_mmx_and_null     (__m128 vector);
                                                                     \
     shifting_on_horizontal = BASE_SHIFTING_ON_HORIZONTAL / scale;   \
     shifting_on_vertical   = BASE_SHIFTING_ON_VERTICAL   / scale;   
+
+#define print_type_of_vector_(type_of_vector, str_for_arg)                              \
+    type_of_vector* list_of_x = (type_of_vector*) list_arg.x_coordinates;   			\
+    type_of_vector* list_of_y = (type_of_vector*) list_arg.y_coordinates;   			\
+                                                                                		\
+    for (size_t index = 0; index < list_arg.count_of_elements; index++)      			\
+    {                                                                       			\
+        printf (str_for_arg, *(list_of_x));                                    			\
+        list_of_x++;                                                            		\
+    }                                                                           		\
+                                                                                		\
+    if (list_arg.count_of_vectors == TWO_VECTORS)                               		\
+    {                                                                           		\
+        printf ("\n");                                                          		\
+                                                                                		\
+        for (size_t index = 0; index < list_arg.count_of_elements; index++)     		\
+        {                                                                       		\
+            printf (str_for_arg, *(list_of_y));                                         \
+            list_of_y++;                                                                \
+        }                                                                               \
+    }                                                                                   \
+                                                                                        \
+    printf ("\n------------------------------------------------------------\n\n");
 
 //-----------------------------------------------------------------------------------
 
@@ -78,12 +126,14 @@ errors_in_mandelbrot draw_mandelbrot ()
     float x_center = 0, 
           y_center = 0;
 
-    __m128 x_coordinates = _mm_set1_ps (0);
-    __m128 y_coordinates = _mm_set1_ps (0);
-
-    __m128 count_of_iterations = _mm_set1_ps (0);
+    __m256 x_coordinates       = _mm256_set_ps (0, 0, 0, 0, 0, 0, 0, 0);
+    __m256 y_coordinates       = _mm256_set_ps (0, 0, 0, 0, 0, 0, 0, 0);
+    __m256 count_of_iterations = _mm256_set_ps (0, 0, 0, 0, 0, 0, 0, 0);
 
     sf::Texture texture;
+
+	clock_t time1 = 0;
+	clock_t time2 = 0;
 
     //---------------------------------------------------------------------------------------
 
@@ -126,6 +176,13 @@ errors_in_mandelbrot draw_mandelbrot ()
         //----------------------------------------------------------------------------------------
         //draw model_of_mandelbrot
 
+		time1 = clock ();
+		if (time1 == -1)
+		{
+			printf ("\n\nError in %s:%d\nCannot do clock();", __FILE__, __LINE__);
+			return ERROR_IN_CHECK_TIME;
+		}
+
         x0 = min_x;
         y0 = max_y;
 
@@ -133,8 +190,10 @@ errors_in_mandelbrot draw_mandelbrot ()
         {
             for (uint x_pixel_index = 0; x_pixel_index < BASE_X_SIZE; x_pixel_index += LEN_POINTS_IN_MMX)
             {
-                y_coordinates = _mm_set_ps (y0, y0,      y0,        y0);
-                x_coordinates = _mm_set_ps (x0, x0 + dx, x0 + 2*dx, x0 + 3*dx);
+                y_coordinates = _mm256_set_ps (y0,        y0,        y0,        y0,        
+                                               y0,        y0,        y0,        y0);
+                x_coordinates = _mm256_set_ps (x0,        x0 + dx,   x0 + 2*dx, x0 + 3*dx, 
+                                               x0 + 4*dx, x0 + 5*dx, x0 + 6*dx, x0 + 7*dx);
 
                 count_of_iterations = mandelbrot (x_coordinates, y_coordinates);
 
@@ -142,23 +201,23 @@ errors_in_mandelbrot draw_mandelbrot ()
 
                 for (size_t index_of_point = 0; index_of_point < LEN_POINTS_IN_MMX; index_of_point++)
                 {
-                    uint8_t iteration = (uint8_t) *(iteration_for_point + index_of_point);
+                    int iteration = (int) *(iteration_for_point + index_of_point);
 
-                    if (iteration == 0)
+                    if (iteration == MAX_NUMBER_OF_ITERATION_POINT)
                     {
                         image.setPixel({x_pixel_index + (int) index_of_point, y_pixel_index}, sf::Color::Black);
                     }
 
                     else
                     {
-                        color_of_pixel.r =  iteration * 50 % 256;
-                        color_of_pixel.b =  iteration * 20 % 256;
+                        color_of_pixel.r = (uint8_t) iteration * 50 % 256;
+                        color_of_pixel.b = (uint8_t) iteration * 20 % 256;
 
                         image.setPixel({x_pixel_index + (int) index_of_point, y_pixel_index}, color_of_pixel);
                     }
                 }
 
-                x0 += dx * LEN_POINTS_IN_MMX;      //x0 += dx * 4
+                x0 += dx * LEN_POINTS_IN_MMX;      //x0 += dx * 8
             }
 
             x0  = min_x;
@@ -180,25 +239,37 @@ errors_in_mandelbrot draw_mandelbrot ()
         window.clear(BASE_COLOR_OF_PIXELS);
         window.draw(sprite);
         window.display();
+
+		time2 = clock ();
+		if (time2 == -1)
+		{
+			printf ("\n\nError in %s:%d\nCannot do clock();", __FILE__, __LINE__);
+			return ERROR_IN_CHECK_TIME;
+		}
+
+		printf("fps == %f\n", CLOCKS_PER_SEC / ((double) (time2 - time1)));
     }
 
 	return status;
 }
 
-static __m128 mandelbrot (__m128 x_coordinates, __m128 y_coordinates)
+static __m256 mandelbrot (__m256 x_coordinates, __m256 y_coordinates)
 {
-    __m128 max_distances       = _mm_set1_ps (MAX_DISTANCE_2);
-    __m128 results_of_cmp      = _mm_set1_ps (0);
-    __m128 count_of_iterations = _mm_set1_ps (0);
+    __m256 max_distances       = _mm256_set_ps (MAX_DISTANCE_2, MAX_DISTANCE_2, MAX_DISTANCE_2, MAX_DISTANCE_2, 
+                                                MAX_DISTANCE_2, MAX_DISTANCE_2, MAX_DISTANCE_2, MAX_DISTANCE_2);
 
-    __m128 begin_x_coordinates = _mm_set_ps1 (0);
+    __m256 results_of_cmp      = _mm256_set_ps (0, 0, 0, 0, 0, 0, 0, 0);
+    __m256 count_of_iterations = _mm256_set_ps (0, 0, 0, 0, 0, 0, 0, 0);
 
-    __m128 x0_coordinates = x_coordinates;
-    __m128 y0_coordinates = y_coordinates;
+    __m256 begin_x_coordinates = _mm256_set_ps (0, 0, 0, 0, 0, 0, 0, 0);
 
-    __m128 distance_of_points = _mm_set_ps1 (0);
+    __m256 x0_coordinates = x_coordinates;
+    __m256 y0_coordinates = y_coordinates;
 
-    __m128 mask_for_result = _mm_set_ps1 (MASK_FOR_RESULT); 
+    __m256 distance_of_points = _mm256_set_ps (0, 0, 0, 0, 0, 0, 0, 0);
+
+    __m256 mask_for_result = _mm256_set_ps (MASK_FOR_RESULT, MASK_FOR_RESULT, MASK_FOR_RESULT, MASK_FOR_RESULT, 
+                                            MASK_FOR_RESULT, MASK_FOR_RESULT, MASK_FOR_RESULT, MASK_FOR_RESULT); 
 
     for (size_t iteration = 0; iteration < MAX_NUMBER_OF_ITERATION_POINT; iteration++)
     {
@@ -209,11 +280,11 @@ static __m128 mandelbrot (__m128 x_coordinates, __m128 y_coordinates)
 
         distance_of_points = deg_2_(x_coordinates) + deg_2_(y_coordinates);
 
-        results_of_cmp = _mm_cmple_ps (distance_of_points, max_distances);
+        results_of_cmp = _mm256_cmp_ps (distance_of_points, max_distances, _CMP_LT_OS);    //_CMP_LT_OS <--> <
 
-        results_of_cmp = _mm_and_ps (results_of_cmp, mask_for_result);
+        results_of_cmp = _mm256_and_ps (results_of_cmp, mask_for_result);
 
-        count_of_iterations = _mm_add_ps (count_of_iterations, results_of_cmp);
+        count_of_iterations = _mm256_add_ps (count_of_iterations, results_of_cmp);
 
         if (cmp_mmx_and_null (results_of_cmp)) {break;}
     }
@@ -221,7 +292,7 @@ static __m128 mandelbrot (__m128 x_coordinates, __m128 y_coordinates)
     return count_of_iterations; 
 }
 
-static bool cmp_mmx_and_null (__m128 vector)
+static bool cmp_mmx_and_null (__m256 vector)
 {
     float* ptr_on_vector = (float*) &vector;
 
@@ -235,56 +306,26 @@ static bool cmp_mmx_and_null (__m128 vector)
     return true;
 }
 
-errors_in_mandelbrot print_list_of_points (__m128* x_coordinates, __m128* y_coordinates, mode_of_working_t mode)
+errors_in_mandelbrot print_list_of_points (list_arg_for_print_vector_t list_arg)
 {
-    assert (x_coordinates);
-    assert (y_coordinates);
+    assert (list_arg.x_coordinates);
+    assert (list_arg.y_coordinates);
 
-    if (mode == NOT_MODE) {return NOT_ERROR;}
+    if (list_arg.mode == NOT_MODE) {return NOT_ERROR;}
 
-    float* list_of_x = (float*) x_coordinates;
-    float* list_of_y = (float*) y_coordinates;
+	switch (list_arg.type)
+	{
+		case 'f': {print_type_of_vector_(float, "%6f | ")  break;}
+		case 'd': {print_type_of_vector_(int,   "%6d | ")  break;}
 
-    if (mode == PRINT_FAST)
-    {
-        for (size_t index_of_point = 0; index_of_point < LEN_POINTS_IN_MMX; index_of_point++)
-            printf ("x%ld = %6f\ty%ld = %6f\n",index_of_point,  *(list_of_x + index_of_point), 
-                                               index_of_point, *(list_of_y + index_of_point));
-    }
+		default: return NOT_ERROR;
+	}
+    
 
-    else    //mode == PRINT_WITH_PAUSE
-    {
-        for (size_t index_of_point = 0; index_of_point < LEN_POINTS_IN_MMX; index_of_point++)
-        {
-            printf ("x%ld = %6f\ty%ld = %6f\n",index_of_point,  *(list_of_x + index_of_point), 
-                                                index_of_point, *(list_of_y + index_of_point));
-            getchar ();
-        }
-    }
-
-    printf ("\n\n");
+    if (list_arg.mode == PRINT_WITH_PAUSE) {getchar ();}
 
     return NOT_ERROR;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 //----------------------------------------------------------------------------------------------------------------------------
 
@@ -319,6 +360,9 @@ errors_in_mandelbrot old_draw_mandelbrot ()
 
     sf::Texture texture;
 
+	clock_t time1 = 0;
+	clock_t time2 = 0;
+
     //---------------------------------------------------------------------------------------
 
 	sf::RenderWindow window(sf::VideoMode({BASE_X_SIZE, BASE_Y_SIZE}), "model_of_mandelbrot");
@@ -359,6 +403,13 @@ errors_in_mandelbrot old_draw_mandelbrot ()
 
         //----------------------------------------------------------------------------------------
         //draw model_of_mandelbrot
+
+		time1 = clock ();
+		if (time1 == -1)
+		{
+			printf ("\n\nError in %s:%d\nCannot do clock();", __FILE__, __LINE__);
+			return ERROR_IN_CHECK_TIME;
+		}
 
         coordinates_of_point = BASE_COORDINATE_OF_POINT;
 
@@ -398,6 +449,15 @@ errors_in_mandelbrot old_draw_mandelbrot ()
         window.clear(BASE_COLOR_OF_PIXELS);
         window.draw(sprite);
         window.display();
+
+		time2 = clock ();
+		if (time2 == -1)
+		{
+			printf ("\n\nError in %s:%d\nCannot do clock();", __FILE__, __LINE__);
+			return ERROR_IN_CHECK_TIME;
+		}
+
+		printf("fps == %f\n", CLOCKS_PER_SEC / ((double) (time2 - time1)));
     }
 
 	return status;
