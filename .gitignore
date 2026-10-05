@@ -2,3 +2,4 @@ build
 mandelbrot
 .vscode
 red_green_lines.cpp
+.*
